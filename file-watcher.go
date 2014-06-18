@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-type FileInfo struct {
+type FileMeta struct {
 	FileName  string
 	ModTime   time.Time
 	LineCount int
@@ -21,26 +21,14 @@ func main() {
 	root := flag.Arg(0)
 	pattern := flag.Arg(1)
 
-	ticker := time.NewTicker(5 * time.Second)
-	var previousFiles, currentFiles, modifiedFiles map[string]FileInfo
+	ticker := time.NewTicker(1 * time.Second)
+	var previousFiles, currentFiles, modifiedFiles map[string]FileMeta
 
 	previousFiles = getFilesMatchingPattern(pattern, root)
+	countFilesLines(previousFiles)
 
-	doneCountingLinesChan := make(chan int)
-	for fileName, fileInfo := range previousFiles {
-		go func(fileName string, fileInfo FileInfo, doneCountingLinesChan chan<- int) {
-			currentFileInfo, _ := previousFiles[fileName]
-			currentFileInfo.LineCount = countFileLines(fileInfo)
-			previousFiles[fileName] = currentFileInfo
-			doneCountingLinesChan <- 1
-		}(fileName, fileInfo, doneCountingLinesChan)
-	}
-	for i := 0; i < len(previousFiles); i++ {
-		<-doneCountingLinesChan
-	}
-
-	for fileName, fileInfo := range previousFiles {
-		fmt.Printf("Start values: %s %d\n", fileName, fileInfo.LineCount)
+	for fileName, fileMeta := range previousFiles {
+		fmt.Printf("Start values: %s %d\n", fileName, fileMeta.LineCount)
 	}
 
 	for {
@@ -48,28 +36,32 @@ func main() {
 		case <-ticker.C:
 			// Get a current listing of the files and their mod times
 			currentFiles = getFilesMatchingPattern(pattern, root)
+
 			// Get a list of the file names that have been modified based off the mod time
-			modifiedFiles = getModifiedFiles(previousFiles, currentFiles)
 			// Go through and get updated line counts for just the modified files
-			//updateFileLineCounts(modifiedFiles)
+			modifiedFiles = getModifiedFiles(previousFiles, currentFiles)
+			if len(modifiedFiles) > 0 {
+				countFilesLines(modifiedFiles)
 
-			// Loop through the modified files and list the line count change compared to the preivous check.
-			// Update the LineCount property in the currentFiles list as we go.
-
-			for fileName, fileInfo := range modifiedFiles {
-				fmt.Printf("%s %s\n", fileName, fileInfo.ModTime)
+				// Loop through the modified files and list the line count change compared to the preivous check.
+				// Update the LineCount property in the currentFiles list as we go.
+				for fileName, fileMeta := range modifiedFiles {
+					previousFileMeta, _ := previousFiles[fileName]
+					fmt.Printf("Last count: %d new count: %d\n", previousFileMeta.LineCount, fileMeta.LineCount)
+					currentFiles[fileName] = fileMeta
+				}
+				previousFiles = currentFiles
 			}
-			previousFiles = currentFiles
 		}
 	}
 }
 
-func getFilesMatchingPattern(pattern string, root string) map[string]FileInfo {
-	files := make(map[string]FileInfo)
+func getFilesMatchingPattern(pattern string, root string) map[string]FileMeta {
+	files := make(map[string]FileMeta)
 	visit := func(fileName string, f os.FileInfo, err error) error {
 		match, err := path.Match(pattern, f.Name())
 		if match {
-			files[fileName] = FileInfo{FileName: fileName, ModTime: f.ModTime()}
+			files[fileName] = FileMeta{FileName: fileName, ModTime: f.ModTime()}
 		}
 		return nil
 	}
@@ -77,9 +69,41 @@ func getFilesMatchingPattern(pattern string, root string) map[string]FileInfo {
 	return files
 }
 
-func countFileLines(fileInfo FileInfo) int {
-	fmt.Printf("Reading %s\n", fileInfo.FileName)
-	file, _ := os.Open(fileInfo.FileName)
+func getModifiedFiles(previousFiles, currentFiles map[string]FileMeta) map[string]FileMeta {
+	modifiedFiles := make(map[string]FileMeta)
+
+	for fileName, previousFileMeta := range previousFiles {
+		if currentFileMeta, ok := currentFiles[fileName]; ok {
+			if currentFileMeta.ModTime.After(previousFileMeta.ModTime) {
+				modifiedFiles[fileName] = currentFileMeta
+			}
+		}
+	}
+	return modifiedFiles
+}
+
+func getNewAndDeletedFiles(previousFiles, currentFiles map[string]FileMeta) ([]string, []string) {
+	return nil
+}
+
+func countFilesLines(files map[string]FileMeta) {
+	doneCountingLinesChan := make(chan int)
+	for fileName, fileMeta := range files {
+		go func(fileName string, fileMeta FileMeta, doneCountingLinesChan chan<- int) {
+			currentFileMeta, _ := files[fileName]
+			currentFileMeta.LineCount = countFileLines(fileMeta)
+			files[fileName] = currentFileMeta
+			doneCountingLinesChan <- 1
+		}(fileName, fileMeta, doneCountingLinesChan)
+	}
+	for i := 0; i < len(files); i++ {
+		<-doneCountingLinesChan
+	}
+	return
+}
+
+func countFileLines(fileMeta FileMeta) int {
+	file, _ := os.Open(fileMeta.FileName)
 	scanner := bufio.NewScanner(file)
 	lineCount := 0
 
@@ -88,21 +112,4 @@ func countFileLines(fileInfo FileInfo) int {
 	}
 
 	return lineCount
-}
-
-func getModifiedFiles(previousFiles, currentFiles map[string]FileInfo) map[string]FileInfo {
-	modifiedFiles := make(map[string]FileInfo)
-
-	for fileName, previousFileInfo := range previousFiles {
-		if currentFileInfo, ok := currentFiles[fileName]; ok {
-			if currentFileInfo.ModTime.After(previousFileInfo.ModTime) {
-				modifiedFiles[fileName] = currentFileInfo
-			}
-		}
-	}
-	return modifiedFiles
-}
-
-func getDeletedFiles(oldList, newList []string) []string {
-	return nil
 }
