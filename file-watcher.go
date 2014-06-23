@@ -64,9 +64,9 @@ func main() {
 			if len(modifiedFiles) > 0 {
 				countFilesLines(modifiedFiles)
 				// Loop through the modified files and list the line count change compared to the previous check.
-				for fileName, fileStatus := range modifiedFiles {
+				for fileName, currentFileStatus := range modifiedFiles {
 					previousFileStatus, _ := previousFiles[fileName]
-					displayFileDiff(previousFileStatus, fileStatus)
+					displayLineCountDiff(previousFileStatus, currentFileStatus)
 				}
 			}
 
@@ -76,7 +76,7 @@ func main() {
 	}
 }
 
-func displayFileDiff(previousFileStatus, currentFileStatus FileStatus) {
+func displayLineCountDiff(previousFileStatus, currentFileStatus FileStatus) {
 	if lineDiff := currentFileStatus.LineCount - previousFileStatus.LineCount; lineDiff == 0 {
 		return
 	}
