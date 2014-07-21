@@ -16,6 +16,8 @@ type FileStatus struct {
 	LineCount int
 }
 
+type FileStatuses map[string]FileStatus
+
 var root, pattern string
 
 func init() {
@@ -32,7 +34,7 @@ func init() {
 }
 
 func main() {
-	var previousFiles, currentFiles, modifiedFiles map[string]FileStatus
+	var previousFiles, currentFiles, modifiedFiles FileStatuses
 
 	previousFiles = getFilesMatchingPattern(pattern, root)
 	countFilesLines(previousFiles)
@@ -77,18 +79,21 @@ func main() {
 }
 
 func displayLineCountDiff(previousFileStatus, currentFileStatus FileStatus) {
-	if lineDiff := currentFileStatus.LineCount - previousFileStatus.LineCount; lineDiff == 0 {
+	var (
+		sign     string
+		lineDiff int
+	)
+	switch lineDiff = currentFileStatus.LineCount - previousFileStatus.LineCount; {
+	case lineDiff == 0:
 		return
-	}
-	sign := ""
-	if lineDiff > 0 {
+	case lineDiff > 0:
 		sign = "+"
 	}
 	fmt.Printf("%s %s%d\n", currentFileStatus.FileName, sign, lineDiff)
 }
 
-func getFilesMatchingPattern(pattern string, root string) map[string]FileStatus {
-	files := make(map[string]FileStatus)
+func getFilesMatchingPattern(pattern string, root string) FileStatuses {
+	files := make(FileStatuses)
 	visit := func(fileName string, f os.FileInfo, err error) error {
 		match, err := path.Match(pattern, f.Name())
 		if match {
@@ -100,8 +105,8 @@ func getFilesMatchingPattern(pattern string, root string) map[string]FileStatus 
 	return files
 }
 
-func getModifiedFiles(previousFiles, currentFiles map[string]FileStatus) map[string]FileStatus {
-	modifiedFiles := make(map[string]FileStatus)
+func getModifiedFiles(previousFiles, currentFiles FileStatuses) FileStatuses {
+	modifiedFiles := make(FileStatuses)
 
 	for fileName, previousFileStatus := range previousFiles {
 		if currentFileStatus, ok := currentFiles[fileName]; ok {
@@ -113,8 +118,8 @@ func getModifiedFiles(previousFiles, currentFiles map[string]FileStatus) map[str
 	return modifiedFiles
 }
 
-func getNewAndDeletedFiles(previousFiles, currentFiles map[string]FileStatus) (map[string]FileStatus, []string) {
-	newFiles := make(map[string]FileStatus)
+func getNewAndDeletedFiles(previousFiles, currentFiles FileStatuses) (FileStatuses, []string) {
+	newFiles := make(FileStatuses)
 	var deletedFiles []string
 
 	for fileName, fileStatus := range currentFiles {
@@ -133,7 +138,7 @@ func getNewAndDeletedFiles(previousFiles, currentFiles map[string]FileStatus) (m
 	return newFiles, deletedFiles
 }
 
-func countFilesLines(files map[string]FileStatus) {
+func countFilesLines(files FileStatuses) {
 	done := make(chan int)
 	for fileName, fileStatus := range files {
 		go func(fileName string, fileStatus FileStatus, done chan<- int) {
@@ -153,7 +158,7 @@ func countFileLines(fileName string) int {
 	file, err := os.Open(fileName)
 	defer file.Close()
 	if err != nil {
-		panic(fmt.Printf("Error opening file: %s", fileName))
+		panic("Error opening file: " + fileName)
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -166,7 +171,7 @@ func countFileLines(fileName string) int {
 	return lineCount
 }
 
-func syncFileStatus(previousFiles, currentFiles, modifiedFiles, newFiles map[string]FileStatus) map[string]FileStatus {
+func syncFileStatus(previousFiles, currentFiles, modifiedFiles, newFiles FileStatuses) FileStatuses {
 	// Loop through the current files, and get the FileStatus information from the previous files so we don't have to count the lines again.
 	// Only do this for items where the ModTime is the same - otherwise keep the currentFiles copy.
 	for fileName, fileStatus := range currentFiles {
